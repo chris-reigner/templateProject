@@ -1,0 +1,77 @@
+# .pre-commit-config.yaml
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.0
+    hooks:
+      - id: gitleaks
+        name: "🔒 security · Detect hardcoded secrets"
+
+  # Python: Ruff does EVERYTHING (format + lint + naming)
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.17.0
+    hooks:
+      # Lint first (includes naming, docstrings, everything)
+      - id: ruff
+        name: "🐍 python · Lint with Ruff (ALL rules)"
+        args: [ --fix ]
+        exclude: ^whitelist\.py$  # Vulture whitelist file
+      # Format after linting
+      - id: ruff-format
+        name: "🐍 python · Format with Ruff"
+        exclude: ^whitelist\.py$  # Vulture whitelist file
+
+  # Static type checking (isolated env: third-party stubs must go in additional_dependencies)
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v2.4.0
+    hooks:
+      - id: mypy
+        name: "🐍 python · Type check with mypy"
+        args: [ --ignore-missing-imports, --disallow-untyped-defs, --warn-unused-ignores ]
+        additional_dependencies: [ loguru, pytest, pytest-bdd ]
+
+  # Static security analysis
+  - repo: https://github.com/PyCQA/bandit
+    rev: 1.9.4
+    hooks:
+      - id: bandit
+        name: "🔒 security · Static analysis with Bandit"
+        args: [ --severity-level, medium ]
+        exclude: ^tests/  # asserts are expected in tests
+
+  # Cyclomatic complexity (A best → F worst)
+  - repo: https://github.com/rubik/xenon
+    rev: v0.9.3
+    hooks:
+      - id: xenon
+        name: "🐍 python · Complexity with Xenon"
+        args: [ --max-absolute, B, --max-modules, A, --max-average, A, --exclude, "tests/*,.venv/*" ]
+
+  - repo: https://github.com/igorshubovych/markdownlint-cli
+    rev: v0.49.1
+    hooks:
+      - id: markdownlint
+        args: ["--fix"]
+
+  # Tests + coverage: run with the project's own uv environment (needs pytest + coverage as dev deps)
+  # Coverage settings (branch, source) live in pyproject.toml [tool.coverage].
+  - repo: local
+    hooks:
+      - id: pytest
+        name: "🧪 tests · Run pytest under coverage"
+        entry: uv run coverage run -m pytest tests/
+        language: system
+        pass_filenames: false
+        always_run: true
+      - id: coverage
+        name: "📊 tests · Coverage threshold (≥ 70 %)"
+        entry: uv run coverage report --show-missing --fail-under=70
+        language: system
+        pass_filenames: false
+        always_run: true
+
+#  - repo: https://github.com/codespell-project/codespell
+#    rev: v2.2.5
+#    hooks:
+#      - id: codespell
+#        files: ^.*\.(py|c|h|md|rst|yml)$
+#        args: ["--skip", "*.git,*.pyc,node_modules,build,dist,site"]

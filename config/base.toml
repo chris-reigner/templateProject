@@ -1,0 +1,12 @@
+# Defaults shared by every environment.
+# The active environment file (selected by APP_ENV) is merged over this one.
+
+[app]
+name = "template-project"
+
+[logging]
+level = "INFO"        # master level: TRACE | DEBUG | INFO | SUCCESS | WARNING | ERROR | CRITICAL
+serialize = false     # true = one JSON object per log line
+file_path = ""        # empty = stderr only; otherwise also write to this file
+rotation = "10 MB"
+retention = "14 days"

@@ -1,0 +1,4 @@
+# Local development (default environment).
+
+[logging]
+level = "DEBUG"

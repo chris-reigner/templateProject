@@ -1,0 +1,5 @@
+# Docker production environment.
+
+[logging]
+level = "WARNING"
+serialize = true

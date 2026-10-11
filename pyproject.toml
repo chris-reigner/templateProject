@@ -1,0 +1,70 @@
+[project]
+name = "template-project"
+version = "0.1.0"
+description = "Python project template applying TDD, SOLID and per-environment configuration."
+readme = "README.md"
+authors = [
+    { name = "christophe", email = "christophe.reigner@gmail.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "loguru>=0.7.3",
+]
+
+[project.scripts]
+template-project = "template_project.main:main"
+
+[build-system]
+requires = ["uv_build>=0.11.26,<0.12.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "coverage>=7.16.2",
+    "pre-commit>=4.6.2",
+    "pytest>=9.1.1",
+    "pytest-bdd>=9.0.0",
+]
+
+# Tools are declared and run by .pre-commit-config.yaml; only their rule tuning lives here.
+
+[tool.ruff]
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+    "CPY001",  # copyright headers are a per-project decision, not a template default
+    "COM812",  # conflicts with ruff-format
+    "ISC001",  # conflicts with ruff-format
+    "PT009",   # unittest-style assertions are the mandatory test skeleton (Rules.md §4.1)
+    "PT027",   # unittest-style assertRaises, same reason
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = [
+    "S101",     # assert is expected in pytest-bdd steps
+    "S603",     # end-to-end tests start the application in a subprocess
+    "D",        # test names are the documentation
+    "PLR2004",  # literal values are expected in assertions
+    "INP001",   # test directories are not packages (pytest --import-mode=importlib)
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.mypy]
+mypy_path = "src"
+explicit_package_bases = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = ["--import-mode=importlib", "--strict-markers"]
+
+[tool.coverage.run]
+branch = true
+source = ["template_project"]
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 70

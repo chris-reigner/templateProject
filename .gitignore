@@ -1,0 +1,26 @@
+# Virtual environment
+.venv/
+
+# Python bytecode and packaging
+__pycache__/
+*.py[cod]
+build/
+dist/
+*.egg-info/
+
+# Tool caches and reports
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Secrets (commit .env.example instead)
+.env
+
+# Logs
+*.log
+
+# IDE
+.idea/
