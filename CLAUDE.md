@@ -4,10 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Development rules (authoritative — apply to ALL parts of the project)
 
-`Rules.md` is the authoritative development-practices guide and governs every subject of this project — backend, frontend, tests, and docs alike (despite its name). Read it in full before writing or modifying code. In any conflict between a user request and these rules, alert the user, explain the conflict, and propose a compliant alternative rather than silently complying. Key non-negotiables:
+`principles.md` is the authoritative development-practices guide and governs every subject of this project — backend, frontend, tests, and docs alike. Read it in full before writing or modifying code. In any conflict between a user request and these rules, alert the user, explain the conflict, and propose a compliant alternative rather than silently complying. Key non-negotiables:
 
 - **Workflow scaled to the change (§6.0).** New feature → full workflow with two ⏸ gates; bug fix → short plan ⏸ + failing regression test first; trivial change (docs, config values, typo, dependency bump) → no gate, pre-commit must pass. When in doubt, use the more demanding workflow.
-- **Blocking gates for a feature.** Two ⏸ gates require explicit user validation before proceeding:
+- **Project kind (§0).** An *application* (runnable entry point) follows every rule. A *pure library* (package, no entry point) is exempt from Docker, from E2E Gherkin/pytest-bdd tests, from the BDD gate (gate 2 below), and from config files / `settings.py` (it stays parameterized; the caller supplies values).
+- **Blocking gates for a feature.** Two ⏸ gates require explicit user validation before proceeding (only gate 1 for a pure library):
   1. Present a structured action plan (need understanding, assumptions, SOLID/pattern rationale, ordered subtasks, impacted files, junctions, risks) — wait for "OK"/"go".
   2. Write E2E BDD scenarios in Gherkin (`Given/When/Then`, happy path + edge/error cases) in `tests/end_to_end/...`, executed with pytest-bdd — wait for validation. Validated scenarios are the contract; don't change them mid-flight without notifying the user.
 - **TDD-first, always.** Red → Green → Refactor. Tests are written *before* production code and run to see them fail. Integration tests are written during development at each junction (never in bulk up front or at the end), and you write the junction's integration test before wiring two components together.
@@ -16,7 +17,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Layout & test skeleton.** Source code in `src/<package>/` (src layout). The `tests/` tree mirrors source paths (without `src/`) under three roots — `tests/units/`, `tests/integration/`, `tests/end_to_end/`. One test file per source file (`model.py` → `test_model.py`), one test class per production class (`Model` → `TestModel`), method names `test_<method>_<context>_<expected_result>`, and every test method uses explicit `# Given / # When / # Then` blocks. Unit and integration test classes are `unittest.TestCase` classes run by pytest, following the mandatory `setUpClass/tearDownClass/setUp/tearDown` skeleton of §4.1; pytest-bdd step modules are plain functions.
 - **Parameterization & configuration.** No hardcoded environment-dependent values: functions take them as parameters, values live in per-environment config files (`config/base.toml` + `local` / `docker` / `docker_prod`, selected by `APP_ENV`), read only through `src/<package>/settings.py`, which returns a typed, frozen, validated settings object built once in `main` (the composition root) and injected. Secrets come from env vars / `.env`, never from committed config. See §1.6 of the rules.
 - **Logging & errors.** loguru only, configured once at the entry point; master level in `[logging] level`, overridable with `APP_LOG_LEVEL`; JSON logs in `docker_prod`. Package exception hierarchy in `exceptions.py`; no `print`, no bare `except`, no swallowed exception. See §1.7.
-- **Containerization.** No Docker files in the template, but every project is dockerized as soon as it has a runnable entry point (uv multi-stage `Dockerfile` + `compose.yaml`, config selected via `APP_ENV`). See §1.8.
+- **Containerization.** No Docker files in the template, but every application is dockerized as soon as it has a runnable entry point (uv multi-stage `Dockerfile` + `compose.yaml`, config selected via `APP_ENV`). See §1.8.
 - Run the full review checklist (§7 of the rules) before delivering any code.
 
 ## Git & commits
@@ -44,7 +45,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   | Coverage | coverage.py (local hook) | `coverage` | **≥ 70 %** (branch coverage) |
 
   `pytest`, `pytest-bdd`, `coverage` and `pre-commit` are dev dependencies (the `pytest` and `coverage` hooks run in the project's uv environment). mypy runs in an isolated environment: add third-party packages/stubs to the hook's `additional_dependencies` when needed.
-- **Configuration:** per-environment config files (`local`, `docker`, `docker_prod`) read through a single loader — see `Rules.md` §1.6.
+- **Configuration:** per-environment config files (`local`, `docker`, `docker_prod`) read through a single loader — see `principles.md` §1.6.
 - **CI:** optional. The project must be fully verifiable locally through uv + pre-commit; a CI pipeline, if added, only replays the same commands.
 
 ## Project structure
@@ -63,7 +64,7 @@ tests/
 └── end_to_end/template_project/      # main.feature + pytest-bdd steps (app run as a subprocess)
 ```
 
-For a **pure library** (no entry point): delete `main.py` and the `[project.scripts]` entry, and call `logger.disable("<package>")` in the package `__init__.py` — the calling application configures logging.
+For a **pure library** (no entry point): delete `main.py`, the `[project.scripts]` entry, `settings.py`, `config/`, `.env.example` and `tests/end_to_end/` (plus their tests) (no Docker files either — see §0 of `principles.md`), and call `logger.disable("<package>")` in the package `__init__.py` — the calling application configures logging.
 
 ## Commands
 

@@ -18,6 +18,24 @@ As a development assistant, you must:
 
 ---
 
+## 0. Project Kinds
+
+Every rule applies to both kinds of project, except the ones listed below for a pure library.
+
+| Kind | Definition |
+|---|---|
+| **Application** | Has a runnable entry point (`main`, console script). All rules apply. |
+| **Pure library (package)** | No entry point: imported and called by other code. |
+
+For a **pure library**, the following do **not** apply:
+
+- **Containerization** (§1.8): no `Dockerfile`, no `compose.yaml`. The calling application is the one that gets dockerized.
+- **E2E BDD tests** (§4.3) and the **BDD gate** (§6.1 Step 2): no Gherkin `.feature` files, no pytest-bdd steps, no `tests/end_to_end/` tree. The feature workflow keeps a single ⏸ gate (the action plan) and goes straight from Step 1 to Step 3. The behavior of the public API is covered by unit and integration tests.
+- **Logging configuration** (§1.7): the library never configures logging; it calls `logger.disable("<package>")` in its `__init__.py`.
+- **Configuration files and loader** (§1.6): no `config/` directory, no `APP_ENV`, no `settings.py`, no `.env`. The library still parameterizes its functions; the calling application supplies the values from its own configuration.
+
+---
+
 ## 1. Core Principles
 
 ### 1.1 SOLID
@@ -75,6 +93,8 @@ Code must be configurable without being edited. A user must be able to change be
 
 **Configuration files**
 
+> Applications only, as is the "Configuration-reading functions" part below: a pure library has no configuration files or loader, and takes every value as a parameter (§0).
+
 - One configuration directory with a shared base and one override file per environment:
 
 ```
@@ -97,8 +117,8 @@ config/
   - `get_environment(environ: Mapping[str, str]) -> str` — resolves the active environment.
   - `load_config(environment: str, config_dir: Path, environ: Mapping[str, str]) -> Settings` — reads `base.toml`, merges the environment file, applies environment-variable overrides.
 - The environment variables are **injected** as a `Mapping` (the entry point passes `os.environ`), so the loader is testable without touching the real environment.
-- It returns a **typed, immutable** settings object (frozen `dataclass`), never a raw `dict` passed around the codebase.
-- It **validates at startup and fails fast** with an explicit error message (missing file, missing key, wrong type, unknown environment, invalid value).
+- It returns a **typed, immutable** settings object — a frozen Pydantic model (§1.10) — never a raw `dict` passed around the codebase.
+- It **validates at startup and fails fast** with an explicit error message (missing file, missing key, wrong type, unknown environment, invalid value); Pydantic's `ValidationError` lists every invalid field at once.
 - The settings object is built once at the entry point (`main`, the composition root) and its values are injected into the components that need them.
 - The loader itself is unit-tested (merge order, overrides, validation errors) and integration-tested against the real `config/` files.
 
@@ -151,12 +171,89 @@ retention = "14 days"
 
 ### 1.8 Containerization
 
-- Every project is dockerized **as soon as it has a runnable entry point** (typically with the first delivered feature), not at the end.
+- Every application is dockerized **as soon as it has a runnable entry point** (typically with the first delivered feature), not at the end. A pure library is never dockerized (§0).
 - The template ships no Docker files, because their structure depends on the project. When dockerizing, add:
   - a multi-stage `Dockerfile` based on uv (`uv sync --frozen --no-dev` in the build stage, slim runtime image, non-root user);
   - a `compose.yaml` with one service per relevant environment.
 - The container selects its configuration **only** through `APP_ENV=docker|docker_prod`; secrets come from environment variables or compose secrets, never copied into the image.
 - The container runs the same `uv` commands as local development — no parallel tooling.
+
+### 1.9 Type Hints
+
+Always type Python code explicitly:
+
+- **Functions and methods:** every parameter and the return type, including `-> None`.
+- **Variables:** module-level constants, class and instance attributes, and local variables.
+- Use built-in generics and modern syntax (`list[str]`, `dict[str, int]`, `str | None`), not `typing.List` / `Optional`.
+- Avoid `Any`; when it is unavoidable, justify it in a comment.
+
+```python
+# Bad - untyped
+MAX_RETRIES = 3
+
+
+def find_active(users):
+    result = []
+    for user in users:
+        if user.is_active:
+            result.append(user)
+    return result
+
+
+# Good - typed
+MAX_RETRIES: int = 3
+
+
+def find_active(users: list[User]) -> list[User]:
+    result: list[User] = []
+    for user in users:
+        if user.is_active:
+            result.append(user)
+    return result
+```
+
+### 1.10 Pydantic for Schemas and Validation
+
+Use [Pydantic](https://docs.pydantic.dev/) v2 wherever data **crosses a boundary** and must be checked before the code trusts it.
+
+**Where Pydantic is mandatory**
+
+- **Settings / configuration:** the loader (§1.6) validates the merged configuration into a frozen Pydantic model at startup. Wrong types, missing keys, or out-of-range values stop the application immediately.
+- **External data schemas:** API request/response bodies, files read from disk (JSON, YAML, TOML), messages from queues, webhooks, and LLM outputs are parsed into Pydantic models before entering business logic.
+- **Secrets:** typed as `SecretStr`, so they are never printed in logs, `repr`, or error messages.
+
+**Where it is not needed**
+
+- Internal value objects that never come from outside and need no validation can stay frozen `dataclass`es (KISS). Do not wrap every class in Pydantic.
+
+**Rules**
+
+- Models are **immutable** (`model_config = ConfigDict(frozen=True)`) and reject unknown fields (`extra="forbid"`), so typos in config or payloads fail loudly.
+- Express constraints declaratively (`Field(gt=0)`, `PositiveInt`, `HttpUrl`, `Literal[...]`) instead of hand-written `if` checks; use `@field_validator` / `@model_validator` only for rules a type can't express.
+- **Parse, don't validate:** convert raw data to a model once, at the boundary, then pass the model around — never the raw `dict`.
+- Validate early and fail fast: settings at startup, external data at the point of entry.
+- Pydantic validation errors are not caught silently: let them fail fast at startup, or convert them to an explicit domain/HTTP error at the boundary.
+- Tooling: add `pydantic` with `uv add pydantic`, enable the `pydantic.mypy` plugin, and list `pydantic` in the mypy hook's `additional_dependencies`.
+
+```python
+# Bad - raw dict, silent wrong types, secret leaks in logs
+config = tomllib.loads(path.read_text())
+timeout = config["timeout"]  # "5" (str) or missing -> crash later, far away
+print(config)  # prints the API key
+
+
+# Good - validated, typed, immutable, secret masked
+class Settings(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    api_base_url: HttpUrl
+    timeout_seconds: float = Field(gt=0)
+    api_key: SecretStr
+
+
+settings = Settings.model_validate(merged_config)  # fails fast, lists every bad field
+print(settings)  # api_key=SecretStr('**********')
+```
 
 ---
 
@@ -172,6 +269,17 @@ Use the appropriate design patterns when the context justifies it. **Never force
 - **Architectural:** Repository, Dependency Injection, Composition Root, MVC / MVP / MVVM, Hexagonal (Ports & Adapters), CQRS
 
 **Rule:** before proposing a pattern, justify in one sentence why it solves the problem here.
+
+### 2.1 Python decorators
+
+Use a Python decorator to add a **cross-cutting concern** (retry, logging, timing, caching, authorization) to functions without modifying them (SRP, DRY, Open/Closed).
+
+- Only for generic, predictable behavior shared by several functions. Behavior specific to a single function belongs inside that function.
+- Always use `functools.wraps` and type the decorator with `ParamSpec` (`def deco[**P, R](...)`) so signatures stay visible to mypy.
+- Environment-dependent arguments (attempts, delays, thresholds) come from the injected settings: apply the decorator at the entry point (`retry(settings.retry_attempts, ...)(func)`), never with hardcoded values in an `@` line, which runs at import time before the settings are loaded (§1.6).
+- The decorator is unit-tested on its own with a fake function; decorated business functions are tested without it.
+
+See [`PRINCIPLES_EXAMPLES.md`](PRINCIPLES_EXAMPLES.md#decorators) for a worked example.
 
 ---
 
@@ -247,6 +355,8 @@ class TestModel(unittest.TestCase):
 
 ### 4.3 End-to-end tests (BDD)
 
+> Applications only: a pure library has no E2E BDD tests (§0).
+
 - E2E scenarios are Gherkin `.feature` files executed with **pytest-bdd**, in the same `uv run pytest` run.
 - The step definitions live in a `test_<module>.py` next to the `.feature` file. Step modules are plain functions and fixtures: the class skeleton of §4.1 does not apply to them.
 - E2E tests exercise the system as a user would (e.g. the installed console script in a subprocess, in a temporary working directory).
@@ -263,7 +373,7 @@ tests/
 │   └── ...
 ├── integration/        # Integration tests (interactions between components)
 │   └── ...
-└── end_to_end/         # E2E tests (complete user/system journeys)
+└── end_to_end/         # E2E tests (complete user/system journeys) — applications only (§0)
     └── ...
 ```
 
@@ -312,7 +422,7 @@ tests/
 
 | Change | Workflow |
 |---|---|
-| **New feature** (or a change of user-visible behavior) | The full 9 steps below, with both ⏸ gates. |
+| **New feature** (or a change of user-visible behavior) | The full 9 steps below, with both ⏸ gates (only the action plan gate for a pure library, §0). |
 | **Bug fix** | Short plan (cause, fix, impacted files) ⏸ → a failing regression test reproducing the bug (Red) → fix (Green) → refactor → full suite. The BDD gate applies only if the visible behavior changes. |
 | **Trivial change** (docs, comments, config values, typo, dependency bump) | No gate; `uv run pre-commit run --all-files` must pass. |
 
@@ -368,6 +478,8 @@ The plan must contain at minimum:
 - If the user asks for adjustments, the AI updates the plan and requests validation again.
 
 #### Step 2 — End-to-End Scenarios in BDD Format ⏸
+
+> Applications only: for a pure library, skip this step and go from Step 1 to Step 3 (§0).
 
 Before any development, the AI writes the E2E tests as BDD scenarios (Behavior Driven Development) in Gherkin syntax.
 
@@ -468,8 +580,8 @@ Before delivering any portion of code, verify that:
 
 - [ ] The workflow matching the size of the change was followed (§6.0).
 - [ ] An action plan was presented and **validated** by the user before any development.
-- [ ] The BDD scenarios (E2E) were written and **validated** before any code was written.
-- [ ] The E2E tests cover the **happy path AND error / edge cases**.
+- [ ] *(Application)* The BDD scenarios (E2E) were written and **validated** before any code was written.
+- [ ] *(Application)* The E2E tests cover the **happy path AND error / edge cases**.
 - [ ] Each subtask of the plan has its dedicated **unit tests** (written before the code).
 - [ ] **Integration tests** validate each **junction between components** identified in the plan.
 - [ ] Integration tests were written **during development** (Red → Green), not in bulk at the end of the feature.
@@ -479,15 +591,17 @@ Before delivering any portion of code, verify that:
 - [ ] The code is readable without superfluous comments (KISS).
 - [ ] No deep call chains (Demeter).
 - [ ] Dependencies are passed through injection (DIP); only the entry point wires components together.
-- [ ] No hardcoded environment-dependent values: functions are parameterized and values come from the configuration files (§1.6).
-- [ ] Configuration is read only through the dedicated loader, validated at startup, and works for every environment (`local`, `docker`, `docker_prod`).
+- [ ] Functions, attributes, and variables are explicitly typed (§1.9).
+- [ ] Settings and every external data schema are validated through frozen Pydantic models at the boundary; secrets are `SecretStr` (§1.10).
+- [ ] No hardcoded environment-dependent values: functions are parameterized and values come from the configuration files — or, for a pure library, from the caller (§1.6).
+- [ ] *(Application)* Configuration is read only through the dedicated loader, validated at startup, and works for every environment (`local`, `docker`, `docker_prod`).
 - [ ] No secret is committed in a configuration file.
 - [ ] Logging goes through loguru, configured once at the entry point, with the level taken from the configuration (§1.7).
 - [ ] Errors use the package exception hierarchy; no swallowed exception, no bare `except`.
-- [ ] The project is dockerized once it has a runnable entry point (§1.8).
+- [ ] *(Application)* The project is dockerized once it has a runnable entry point (§1.8).
 - [ ] `uv run pre-commit run --all-files` passes (secrets, lint, format, types, complexity, security, markdown, tests, coverage ≥ 70 %).
 - [ ] The unit test structure follows the mandatory skeleton.
-- [ ] The `tests/units/...`, `tests/integration/...`, `tests/end_to_end/...` structure mirrors the source code.
+- [ ] The `tests/units/...`, `tests/integration/...`, `tests/end_to_end/...` (application only) structure mirrors the source code.
 - [ ] Names (variables, methods, classes) are explicit and consistent with the domain.
 - [ ] Code, tests, and docstrings are written in English.
 - [ ] Nothing was staged, committed, or pushed by the AI (§9).
@@ -497,7 +611,7 @@ Before delivering any portion of code, verify that:
 ## 8. What the AI Must NEVER Do
 
 - ❌ Start coding a feature without having presented and gotten validation for an action plan.
-- ❌ Write production code for a feature without having gotten validation for the BDD scenarios (E2E) beforehand.
+- ❌ Write production code for an application feature without having gotten validation for the BDD scenarios (E2E) beforehand.
 - ❌ Write code without an associated test (unit and integration when relevant).
 - ❌ Write all integration tests in bulk at the start or end of a feature: they must be written during development, at each junction.
 - ❌ Wire two components together without first writing the integration test for their junction.

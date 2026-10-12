@@ -1,12 +1,12 @@
 # templateProject
 
-A minimal, working Python project template that applies the rules in [`Rules.md`](Rules.md):
+A minimal, working Python project template that applies the rules in [`principles.md`](principles.md):
 TDD (unit / integration / BDD end-to-end tests), SOLID, per-environment configuration, loguru logging,
 and a pre-commit quality gate (Ruff, mypy, Bandit, Xenon, gitleaks, markdownlint, coverage ≥ 70 %).
 
 The example package (`src/template_project/`) is deliberately tiny: it loads the configuration of the
 selected environment, configures logging, and announces that the application started. Every rule of
-`Rules.md` has a concrete example in it.
+`principles.md` has a concrete example in it.
 
 ## Start a new project from this template
 
@@ -28,7 +28,7 @@ selected environment, configures logging, and announces that the application sta
    ```
 
 4. Replace the example (`models/application.py`, `main.feature`, ...) feature by feature, following the
-   workflow of `Rules.md` §6.
+   workflow of `principles.md` §6.
 
 ### Pure library variant
 
@@ -46,5 +46,5 @@ APP_LOG_LEVEL=DEBUG uv run template-project   # force the master log level
 
 ## More
 
-- [`Rules.md`](Rules.md) — development rules (workflow, tests, configuration, logging, git).
+- [`principles.md`](principles.md) — development rules (workflow, tests, configuration, logging, git).
 - [`CLAUDE.md`](CLAUDE.md) — guidance for Claude Code and every development command.

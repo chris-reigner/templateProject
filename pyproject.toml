@@ -37,7 +37,7 @@ ignore = [
     "CPY001",  # copyright headers are a per-project decision, not a template default
     "COM812",  # conflicts with ruff-format
     "ISC001",  # conflicts with ruff-format
-    "PT009",   # unittest-style assertions are the mandatory test skeleton (Rules.md §4.1)
+    "PT009",   # unittest-style assertions are the mandatory test skeleton (principles.md §4.1)
     "PT027",   # unittest-style assertRaises, same reason
 ]
 
